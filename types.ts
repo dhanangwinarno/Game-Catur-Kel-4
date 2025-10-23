@@ -1,4 +1,4 @@
-export type PlayerColor = 'red' | 'yellow' | 'green' | 'blue';
+export type PlayerColor = 'red' | 'yellow' | 'green' | 'blue' | 'purple' | 'orange';
 
 export type Difficulty = 'Easy' | 'Medium' | 'Hard';
 
@@ -57,6 +57,7 @@ export interface GameState {
   turnNumber: number;
   difficulty: Difficulty;
   validMoves: { x: number; y: number }[];
+  tensionLevel: 'normal' | 'high';
 }
 
 export interface GameRecord {

@@ -56,6 +56,52 @@ const _calculateValidMoves = (board: BoardState, turnNumber: number, currentPlay
   });
 };
 
+const _checkThreeInARow = (board: BoardState): boolean => {
+    const directions = [
+        { x: 1, y: 0 }, // Horizontal
+        { x: 0, y: 1 }, // Vertical
+        { x: 1, y: 1 }, // Diagonal \
+        { x: 1, y: -1 } // Diagonal /
+    ];
+
+    for (let y = 0; y < BOARD_SIZE; y++) {
+        for (let x = 0; x < BOARD_SIZE; x++) {
+            for (const dir of directions) {
+                const window: (PlacedCard | null)[] = [];
+                let isValidWindow = true;
+                for (let i = 0; i < 4; i++) {
+                    const checkX = x + i * dir.x;
+                    const checkY = y + i * dir.y;
+                    if (checkX < 0 || checkX >= BOARD_SIZE || checkY < 0 || checkY >= BOARD_SIZE) {
+                        isValidWindow = false;
+                        break;
+                    }
+                    window.push(board[checkY][checkX]);
+                }
+
+                if (isValidWindow) {
+                    const ownerIds = window.map(cell => cell?.ownerId).filter(Boolean);
+                    const uniqueOwners = new Set(ownerIds);
+                    // A threat exists if there are 3 cards of the same player and one empty cell in a 4-cell window
+                    if (ownerIds.length === 3 && uniqueOwners.size === 1 && window.includes(null)) {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    return false;
+};
+
+
+const updateStateAndTension = (state: GameState): GameState => {
+    if (state.isGameOver) {
+        return { ...state, tensionLevel: 'normal' };
+    }
+    const isThreat = _checkThreeInARow(state.board);
+    return { ...state, tensionLevel: isThreat ? 'high' : 'normal' };
+};
+
 
 // Initialize the game state
 export const initializeGameState = (
@@ -126,6 +172,7 @@ export const initializeGameState = (
     turnNumber: 1,
     difficulty,
     validMoves: initialValidMoves,
+    tensionLevel: 'normal',
   };
 };
 
@@ -250,7 +297,7 @@ export const applyCardPlacement = (gameState: GameState, x: number, y: number): 
     const winnerCandidate = finalPlayers.find(p => p.id === currentPlayer.id)!;
     const isDraw = finalPlayers.some(p => p.id !== currentPlayer.id && p.score === winnerCandidate.score);
 
-    return {
+    const finalState = {
       ...gameState,
       board: newBoard, players: finalPlayers, isGameOver: true,
       winner: isDraw ? null : currentPlayer,
@@ -258,6 +305,7 @@ export const applyCardPlacement = (gameState: GameState, x: number, y: number): 
       message: isDraw ? `${currentPlayer.name} got 4-in-a-row, but it's a draw!` : `${currentPlayer.name} wins!`,
       validMoves: [], selectedCard: null, hands: newHands, decks: newDecks,
     };
+    return { ...finalState, tensionLevel: 'normal' as const };
   }
   
   const newPlayers = players.map(p => ({ ...p, score: 0 }));
@@ -276,11 +324,12 @@ export const applyCardPlacement = (gameState: GameState, x: number, y: number): 
       const runnerUp = sortedPlayers[1] || null;
 
       if (leader && runnerUp && leader.score >= 50 && leader.score > runnerUp.score * 2) {
-          return {
+          const finalState = {
               ...gameState, board: newBoard, players: newPlayers, hands: newHands, decks: newDecks,
               selectedCard: null, isGameOver: true, winner: leader, history: [...history, newHistoryEntry],
               message: `${leader.name} wins with a dominant score!`, validMoves: [],
           };
+          return { ...finalState, tensionLevel: 'normal' as const };
       }
   }
 
@@ -293,16 +342,18 @@ export const applyCardPlacement = (gameState: GameState, x: number, y: number): 
       const winner = winners.length === 1 ? winners[0] : null;
       const endMessage = winner ? `${winner.name} wins!` : "It's a draw!";
       
-      return {
+      const finalState = {
           ...gameState, board: newBoard, players: newPlayers, hands: newHands, decks: newDecks, selectedCard: null,
           isGameOver: true, winner, history: [...history, newHistoryEntry], message: endMessage, validMoves: [],
       };
+      return { ...finalState, tensionLevel: 'normal' as const };
   }
 
-  return {
+  const intermediateState = {
     ...gameState, board: newBoard, players: newPlayers, hands: newHands, decks: newDecks,
     selectedCard: null, history: [...history, newHistoryEntry], message: `Move accepted.`,
   };
+  return updateStateAndTension(intermediateState);
 };
 
 export const advanceTurn = (gameState: GameState): GameState => {
@@ -315,13 +366,14 @@ export const advanceTurn = (gameState: GameState): GameState => {
 
   const nextValidMoves = _calculateValidMoves(board, nextTurnNumber, nextPlayer);
 
-  return {
+  const newState = {
     ...gameState,
     currentPlayerIndex: nextPlayerIndex,
     turnNumber: nextTurnNumber,
     message: `${nextPlayer.name}, it's your turn!`,
     validMoves: nextValidMoves,
   };
+  return updateStateAndTension(newState);
 };
 
 export const applyCardPlacementAndAdvance = (gameState: GameState, x: number, y: number): GameState | null => {

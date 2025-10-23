@@ -43,7 +43,7 @@ const GameInfo: React.FC<GameInfoProps> = ({ message, currentPlayer, decks, play
                 </div>
             </div>
 
-            <div className="flex justify-center items-center gap-3 flex-nowrap w-full max-w-4xl mt-2 text-white drop-shadow-md">
+            <div className="flex justify-center items-center gap-3 flex-wrap w-full max-w-4xl mt-2 text-white drop-shadow-md">
                 {players.map(p => (
                     <div key={p.id} className={`px-2 py-1 rounded-full text-xs font-semibold whitespace-nowrap ${PLAYER_COLORS[p.color].bg} ${PLAYER_COLORS[p.color].text}`}>
                         {p.name}: {decks[p.id].length} cards

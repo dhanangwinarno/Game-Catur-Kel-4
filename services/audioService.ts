@@ -66,10 +66,11 @@ const playSoundEffect = (soundGenerator: (ctx: AudioContext) => void) => {
 // Sound implementations
 const soundImplementations: { [key: string]: (ctx: AudioContext) => void } = {
   click: (ctx) => playNote(ctx, 880, ctx.currentTime, 0.1, 'triangle', 0.3),
-  place: (ctx) => playNote(ctx, 523, ctx.currentTime, 0.15, 'sine', 0.4),
+  place: (ctx) => playNote(ctx, 440, ctx.currentTime, 0.1, 'triangle', 0.4),
   capture: (ctx) => {
-    playNote(ctx, 220, ctx.currentTime, 0.2, 'square', 0.4);
-    playNote(ctx, 440, ctx.currentTime + 0.05, 0.15, 'sawtooth', 0.3);
+    const t = ctx.currentTime;
+    playNote(ctx, 164.81, t, 0.2, 'square', 0.5);
+    playNote(ctx, 110.00, t + 0.05, 0.15, 'sawtooth', 0.4);
   },
   win: (ctx) => {
     // A new, more fantastic and triumphant victory fanfare.
@@ -115,12 +116,10 @@ const soundImplementations: { [key: string]: (ctx: AudioContext) => void } = {
   move: (ctx) => playNote(ctx, 440, ctx.currentTime, 0.1, 'sine', 0.4),
   undo: (ctx) => playNote(ctx, 880, ctx.currentTime, 0.1, 'triangle', 0.3),
   redo: (ctx) => playNote(ctx, 880, ctx.currentTime, 0.1, 'triangle', 0.3),
-  invalid: (ctx) => {
-    playNote(ctx, 155.56, ctx.currentTime, 0.3, 'square', 0.4); // D#3
-    playNote(ctx, 164.81, ctx.currentTime, 0.3, 'square', 0.4); // E3
-  },
+  invalid: (ctx) => playNote(ctx, 110.00, ctx.currentTime, 0.25, 'sawtooth', 0.4),
   pause: (ctx) => playNote(ctx, 220, ctx.currentTime, 0.1, 'square', 0.3),
   resume: (ctx) => playNote(ctx, 440, ctx.currentTime, 0.1, 'square', 0.3),
+  passTurn: (ctx) => playNote(ctx, 783.99, ctx.currentTime, 0.15, 'sine', 0.25),
 };
 
 export const playSound = (soundName: keyof typeof soundImplementations) => {
@@ -132,11 +131,30 @@ export const playSound = (soundName: keyof typeof soundImplementations) => {
 
 // --- Background Music ---
 let musicNodes: { oscillator: OscillatorNode, gain: GainNode, timeoutId?: number } | null = null;
+let currentMusicType: 'none' | 'normal' | 'tense' = 'none';
 let endGameMusicNodes: { oscillator: OscillatorNode, gain: GainNode, timeoutId?: number } | null = null;
 
-export const startMusic = () => {
+const stopMusicInternal = (fadeDuration = 0.5) => {
+  if (!musicNodes || !getAudioContext()) return;
+
+  const ctx = getAudioContext()!;
+  const { oscillator, gain, timeoutId } = musicNodes;
+  
+  if (timeoutId) {
+    clearTimeout(timeoutId);
+  }
+
+  const fadeOutTime = ctx.currentTime + fadeDuration;
+  gain.gain.linearRampToValueAtTime(0, fadeOutTime);
+
+  oscillator.stop(fadeOutTime);
+  musicNodes = null;
+  currentMusicType = 'none';
+};
+
+const startMusicInternal = (notes: number[], interval: number, volume: number) => {
   const ctx = getAudioContext();
-  if (!ctx || musicNodes) return; // Don't start if already playing or no context
+  if (!ctx) return;
 
   if (ctx.state === 'suspended') {
     ctx.resume();
@@ -147,43 +165,45 @@ export const startMusic = () => {
 
   oscillator.type = 'sine';
   gainNode.gain.setValueAtTime(0, ctx.currentTime);
-  gainNode.gain.linearRampToValueAtTime(0.08, ctx.currentTime + 1); // Fade in to a low volume
+  gainNode.gain.linearRampToValueAtTime(volume, ctx.currentTime + 1);
 
   oscillator.connect(gainNode);
   gainNode.connect(ctx.destination);
   oscillator.start();
 
-  const notes = [130.81, 164.81, 196.00, 261.63]; // C3, E3, G3, C4 arpeggio
   let noteIndex = 0;
 
   const playNextNote = () => {
-    if (!musicNodes) return; // Stop if music has been turned off
+    if (!musicNodes) return;
     const t = ctx.currentTime;
     musicNodes.oscillator.frequency.setValueAtTime(notes[noteIndex % notes.length], t);
     noteIndex++;
-    const timeoutId = window.setTimeout(playNextNote, 1500); // Play a note every 1.5 seconds
+    const timeoutId = window.setTimeout(playNextNote, interval);
     musicNodes.timeoutId = timeoutId;
   };
   
   playNextNote();
   musicNodes = { oscillator, gain: gainNode };
+}
+
+export const startMusic = () => {
+  if (currentMusicType === 'normal') return;
+  stopMusicInternal(0.2); // Quick fade if switching
+  const notes = [130.81, 164.81, 196.00, 261.63]; // C3, E3, G3, C4 arpeggio
+  startMusicInternal(notes, 1500, 0.08);
+  currentMusicType = 'normal';
+};
+
+export const startTenseMusic = () => {
+    if (currentMusicType === 'tense') return;
+    stopMusicInternal(0.2); // Quick fade if switching
+    const notes = [146.83, 155.56, 146.83, 311.13]; // Minor, tense feel: D3, D#3, D3, D#4
+    startMusicInternal(notes, 800, 0.12); // Faster tempo, slightly louder
+    currentMusicType = 'tense';
 };
 
 export const stopMusic = () => {
-  if (!musicNodes || !getAudioContext()) return;
-
-  const ctx = getAudioContext()!;
-  const { oscillator, gain, timeoutId } = musicNodes;
-  
-  if (timeoutId) {
-    clearTimeout(timeoutId);
-  }
-
-  const fadeOutTime = ctx.currentTime + 0.5;
-  gain.gain.linearRampToValueAtTime(0, fadeOutTime);
-
-  oscillator.stop(fadeOutTime);
-  musicNodes = null;
+  stopMusicInternal();
 };
 
 const playEndGameMusicLoop = (notes: number[], volume: number) => {

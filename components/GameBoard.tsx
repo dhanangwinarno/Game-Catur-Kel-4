@@ -1,4 +1,3 @@
-
 import React, { useEffect, useRef, useState } from 'react';
 import { GameState, SelectedCard, Card as CardType, PlayerColor } from '../types';
 import Board from './Board';
@@ -7,7 +6,7 @@ import GameInfo from './GameInfo';
 import HistoryLog from './HistoryLog';
 import RulesPanel from './RulesPanel';
 import { applyCardPlacement, advanceTurn, applyCardPlacementAndAdvance, getComputerMove, handlePassTurn } from '../services/gameLogic';
-import { playSound } from '../services/audioService';
+import { playSound, startMusic, stopMusic, startTenseMusic } from '../services/audioService';
 import AnimatingCard from './AnimatingCard';
 import { BOARD_SIZE } from '../constants';
 
@@ -23,6 +22,7 @@ interface GameBoardProps {
   onToggleMusic: () => void;
   isPaused: boolean;
   onPause: () => void;
+  onSaveAndQuit: () => void;
 }
 
 interface AnimationDetails {
@@ -48,7 +48,7 @@ const usePrevious = <T,>(value: T): T | undefined => {
 };
 
 
-const GameBoard: React.FC<GameBoardProps> = ({ gameState, onUpdateGameState, onRestart, onUndo, onRedo, canUndo, canRedo, isMusicPlaying, onToggleMusic, isPaused, onPause }) => {
+const GameBoard: React.FC<GameBoardProps> = ({ gameState, onUpdateGameState, onRestart, onUndo, onRedo, canUndo, canRedo, isMusicPlaying, onToggleMusic, isPaused, onPause, onSaveAndQuit }) => {
   const currentPlayer = gameState.players[gameState.currentPlayerIndex];
   const [animationDetails, setAnimationDetails] = useState<AnimationDetails | null>(null);
   const [localMessage, setLocalMessage] = useState<string | null>(null);
@@ -64,6 +64,20 @@ const GameBoard: React.FC<GameBoardProps> = ({ gameState, onUpdateGameState, onR
   useEffect(() => {
     gameStateRef.current = gameState;
   });
+
+  // Effect to handle dynamic music based on game tension
+  useEffect(() => {
+    if (isMusicPlaying && !isPaused && !gameState.isGameOver) {
+      if (gameState.tensionLevel === 'high') {
+        startTenseMusic();
+      } else {
+        startMusic();
+      }
+    } else {
+      stopMusic();
+    }
+  }, [gameState.tensionLevel, isMusicPlaying, isPaused, gameState.isGameOver]);
+
 
   // Effect to detect board changes for undo/redo visual feedback
   useEffect(() => {
@@ -173,7 +187,7 @@ const GameBoard: React.FC<GameBoardProps> = ({ gameState, onUpdateGameState, onR
 
   const handlePass = () => {
     if (!isMyTurn || isPaused) return;
-    playSound('click');
+    playSound('passTurn');
     const newState = handlePassTurn(gameState);
     onUpdateGameState(newState);
   };
@@ -239,7 +253,7 @@ const GameBoard: React.FC<GameBoardProps> = ({ gameState, onUpdateGameState, onR
           processAndSetAiMove(move);
         }
       } else {
-        playSound('click'); 
+        playSound('passTurn'); 
         const newState = handlePassTurn(afterThinkGameState);
         onUpdateGameState(newState);
       }
@@ -267,7 +281,7 @@ const GameBoard: React.FC<GameBoardProps> = ({ gameState, onUpdateGameState, onR
                 
                 const latestGameState = gameStateRef.current;
                 if (!latestGameState.isGameOver && latestGameState.turnNumber === gameState.turnNumber) {
-                    playSound('click');
+                    playSound('passTurn');
                     onUpdateGameState(handlePassTurn(latestGameState));
                 }
                 return 0;
@@ -349,13 +363,22 @@ const GameBoard: React.FC<GameBoardProps> = ({ gameState, onUpdateGameState, onR
                   {isMusicPlaying ? '🔇' : '🎵'}
                 </button>
               </div>
-              <button
-                  onClick={() => { playSound('click'); onRestart(); }}
-                  disabled={isPaused}
-                  className="w-full px-6 py-3 text-lg font-semibold rounded-lg shadow-md transition-all bg-red-600 text-white hover:bg-red-700 focus:outline-none focus:ring-4 focus:ring-red-300 disabled:bg-gray-400 disabled:cursor-not-allowed"
-              >
-                  Reset Game
-              </button>
+              <div className="flex gap-2">
+                <button
+                    onClick={onSaveAndQuit}
+                    disabled={isPaused}
+                    className="w-full px-4 py-2 text-md font-semibold rounded-lg shadow-md transition-all bg-blue-600 text-white hover:bg-blue-700 focus:outline-none focus:ring-4 focus:ring-blue-300 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                >
+                    Save & Quit
+                </button>
+                <button
+                    onClick={() => { playSound('click'); onRestart(); }}
+                    disabled={isPaused}
+                    className="w-full px-4 py-2 text-md font-semibold rounded-lg shadow-md transition-all bg-red-600 text-white hover:bg-red-700 focus:outline-none focus:ring-4 focus:ring-red-300 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                >
+                    Reset Game
+                </button>
+              </div>
             </div>
         </div>
       </div>
