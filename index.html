@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-content, initial-scale=1.0" />
+    <title>React Card Conquest</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  <script type="importmap">
+{
+  "imports": {
+    "react": "https://aistudiocdn.com/react@^19.2.0",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+    "react/": "https://aistudiocdn.com/react@^19.2.0/",
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.25.0"
+  }
+}
+</script>
+<style>
+  .confetti-container {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    overflow: hidden;
+    z-index: 9999;
+  }
+  .confetti-piece {
+    position: absolute;
+    width: 8px;
+    height: 16px;
+    top: -20px; /* Start above screen */
+    animation: fall 5s linear forwards;
+  }
+  @keyframes fall {
+    0% {
+      transform: translateY(0vh) rotateZ(0deg);
+      opacity: 1;
+    }
+    100% {
+      transform: translateY(105vh) rotateZ(720deg);
+      opacity: 0;
+    }
+  }
+  /* Custom scrollbar for history log */
+  .history-log-scroll::-webkit-scrollbar {
+    width: 8px;
+  }
+  .history-log-scroll::-webkit-scrollbar-track {
+    background: #2d3748; /* gray-800 */
+    border-radius: 10px;
+  }
+  .history-log-scroll::-webkit-scrollbar-thumb {
+    background: #718096; /* gray-600 */
+    border-radius: 10px;
+  }
+  .history-log-scroll::-webkit-scrollbar-thumb:hover {
+    background: #a0aec0; /* gray-500 */
+  }
+  
+  @keyframes timer-pulse {
+    0% { transform: scale(1.2); }
+    50% { transform: scale(1.4); }
+    100% { transform: scale(1.2); }
+  }
+  .animate-timer-pulse {
+    animation: timer-pulse 0.5s ease-in-out;
+    transform: scale(1.2); /* Keep it slightly larger */
+  }
+
+  @keyframes text-glow {
+    0%, 100% {
+      text-shadow: 0 0 10px rgba(255, 255, 255, 0.9), 0 0 15px rgba(255, 255, 255, 0.7);
+    }
+    50% {
+      text-shadow: 0 0 15px rgba(255, 255, 255, 1), 0 0 25px rgba(255, 255, 255, 0.9);
+    }
+  }
+  .animate-text-glow {
+    animation: text-glow 3s ease-in-out infinite;
+  }
+  
+  @keyframes draw-card {
+    from {
+      opacity: 0;
+      transform: scale(0.5);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+  .animate-draw-card {
+    animation: draw-card 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  }
+  
+  @keyframes scanner-effect {
+    0% {
+      background-position: 200% 0;
+    }
+    100% {
+      background-position: -200% 0;
+    }
+  }
+  .animate-scanner {
+    background-image: linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0) 0%,
+      rgba(255, 255, 255, 0) 40%,
+      rgba(255, 255, 255, 0.4) 50%,
+      rgba(255, 255, 255, 0) 60%,
+      rgba(255, 255, 255, 0) 100%
+    );
+    background-size: 200% 100%;
+    animation: scanner-effect 2s linear infinite;
+  }
+  
+  @keyframes state-change-pulse {
+    0% { 
+      box-shadow: 0 0 0 0 rgba(255, 255, 0, 0.7); 
+    }
+    50% { 
+      box-shadow: 0 0 20px 8px rgba(255, 255, 0, 0); 
+    }
+    100% { 
+      box-shadow: 0 0 0 0 rgba(255, 255, 0, 0); 
+    }
+  }
+  .animate-state-change {
+    animation: state-change-pulse 0.8s ease-out;
+  }
+</style>
+<link rel="stylesheet" href="/index.css">
+</head>
+  <body>
+    <div id="root"></div>
+  <script type="module" src="/index.tsx"></script>
+</body>
+</html>

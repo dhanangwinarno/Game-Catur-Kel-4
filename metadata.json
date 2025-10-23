@@ -1,0 +1,5 @@
+{
+  "name": "Tactical Card Conquest",
+  "description": "A web-based strategy board game where 2-4 players place numbered cards to capture opponent's pieces. The winner is the first to align 4 cards in a row or has the highest score when all cards are played.",
+  "requestFramePermissions": []
+}
