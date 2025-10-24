@@ -1,6 +1,50 @@
+// --- Volume Controls ---
+let sfxVolume = 1.0;
+let musicVolume = 0.5;
+const SFX_VOLUME_KEY = 'tacticalCardConquest_sfxVolume';
+const MUSIC_VOLUME_KEY = 'tacticalCardConquest_musicVolume';
+
 // Singleton AudioContext
 let audioContext: AudioContext | null = null;
 let isAudioContextInitialized = false;
+
+const initializeAudioSettings = () => {
+    try {
+        const savedSfx = localStorage.getItem(SFX_VOLUME_KEY);
+        const savedMusic = localStorage.getItem(MUSIC_VOLUME_KEY);
+        sfxVolume = savedSfx !== null ? parseFloat(savedSfx) : 1.0;
+        musicVolume = savedMusic !== null ? parseFloat(savedMusic) : 0.5;
+    } catch (e) {
+        console.error("Failed to load audio settings", e);
+    }
+};
+initializeAudioSettings();
+
+export const setSfxVolume = (level: number) => {
+    sfxVolume = Math.max(0, Math.min(1, level));
+    try {
+      localStorage.setItem(SFX_VOLUME_KEY, String(sfxVolume));
+    } catch (e) {
+        console.error("Failed to save SFX volume", e);
+    }
+};
+
+export const setMusicVolume = (level: number) => {
+    musicVolume = Math.max(0, Math.min(1, level));
+    try {
+        localStorage.setItem(MUSIC_VOLUME_KEY, String(musicVolume));
+    } catch (e) {
+        console.error("Failed to save music volume", e);
+    }
+    
+    if (musicNodes && musicNodes.gain && getAudioContext()) {
+        let baseVolume = 0.08; // default for 'normal'
+        if (currentMusicType === 'tense') baseVolume = 0.12;
+        if (currentMusicType === 'win') baseVolume = 0.1;
+        musicNodes.gain.gain.setValueAtTime(musicVolume * baseVolume, getAudioContext()!.currentTime);
+    }
+};
+
 
 const getAudioContext = (): AudioContext | null => {
   if (isAudioContextInitialized) {
@@ -35,7 +79,7 @@ const playNote = (
     oscillator.frequency.setValueAtTime(frequency, startTime);
 
     gainNode.gain.setValueAtTime(0, startTime);
-    gainNode.gain.linearRampToValueAtTime(volume, startTime + 0.01);
+    gainNode.gain.linearRampToValueAtTime(volume * sfxVolume, startTime + 0.01);
     gainNode.gain.linearRampToValueAtTime(0, startTime + duration);
 
     oscillator.connect(gainNode);
@@ -120,6 +164,32 @@ const soundImplementations: { [key: string]: (ctx: AudioContext) => void } = {
   pause: (ctx) => playNote(ctx, 220, ctx.currentTime, 0.1, 'square', 0.3),
   resume: (ctx) => playNote(ctx, 440, ctx.currentTime, 0.1, 'square', 0.3),
   passTurn: (ctx) => playNote(ctx, 783.99, ctx.currentTime, 0.15, 'sine', 0.25),
+  applause: (ctx) => {
+    const duration = 1.5;
+    const t = ctx.currentTime;
+    const bufferSize = ctx.sampleRate * duration;
+    const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+
+    // Fill buffer with white noise
+    for (let i = 0; i < bufferSize; i++) {
+        data[i] = Math.random() * 2 - 1;
+    }
+
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+
+    const gainNode = ctx.createGain();
+    // Fade in and out
+    gainNode.gain.setValueAtTime(0, t);
+    gainNode.gain.linearRampToValueAtTime(0.3 * sfxVolume, t + 0.1); // Quick fade in
+    gainNode.gain.linearRampToValueAtTime(0, t + duration); // Slow fade out
+
+    source.connect(gainNode);
+    gainNode.connect(ctx.destination);
+    source.start(t);
+    source.stop(t + duration);
+  },
 };
 
 export const playSound = (soundName: keyof typeof soundImplementations) => {
@@ -131,8 +201,7 @@ export const playSound = (soundName: keyof typeof soundImplementations) => {
 
 // --- Background Music ---
 let musicNodes: { oscillator: OscillatorNode, gain: GainNode, timeoutId?: number } | null = null;
-let currentMusicType: 'none' | 'normal' | 'tense' = 'none';
-let endGameMusicNodes: { oscillator: OscillatorNode, gain: GainNode, timeoutId?: number } | null = null;
+let currentMusicType: 'none' | 'normal' | 'tense' | 'win' = 'none';
 
 const stopMusicInternal = (fadeDuration = 0.5) => {
   if (!musicNodes || !getAudioContext()) return;
@@ -152,7 +221,7 @@ const stopMusicInternal = (fadeDuration = 0.5) => {
   currentMusicType = 'none';
 };
 
-const startMusicInternal = (notes: number[], interval: number, volume: number) => {
+const startMusicInternal = (notes: number[], interval: number, baseVolume: number) => {
   const ctx = getAudioContext();
   if (!ctx) return;
 
@@ -165,7 +234,7 @@ const startMusicInternal = (notes: number[], interval: number, volume: number) =
 
   oscillator.type = 'sine';
   gainNode.gain.setValueAtTime(0, ctx.currentTime);
-  gainNode.gain.linearRampToValueAtTime(volume, ctx.currentTime + 1);
+  gainNode.gain.linearRampToValueAtTime(baseVolume * musicVolume, ctx.currentTime + 1);
 
   oscillator.connect(gainNode);
   gainNode.connect(ctx.destination);
@@ -202,56 +271,20 @@ export const startTenseMusic = () => {
     currentMusicType = 'tense';
 };
 
+export const playWinMusic = () => {
+  if (currentMusicType === 'win') return;
+  stopMusicInternal(0.2);
+  // A triumphant, looping arpeggio for Hall of Fame
+  const notes = [261.63, 329.63, 392.00, 523.25, 392.00, 329.63]; // C4, E4, G4, C5, G4, E4
+  startMusicInternal(notes, 400, 0.1);
+  currentMusicType = 'win';
+}
+
 export const stopMusic = () => {
   stopMusicInternal();
 };
 
-const playEndGameMusicLoop = (notes: number[], volume: number) => {
-    const ctx = getAudioContext();
-    if (!ctx || endGameMusicNodes) return;
-
-    if (ctx.state === 'suspended') ctx.resume();
-
-    const oscillator = ctx.createOscillator();
-    const gainNode = ctx.createGain();
-    oscillator.type = 'sine';
-    gainNode.gain.setValueAtTime(0, ctx.currentTime);
-    gainNode.gain.linearRampToValueAtTime(volume, ctx.currentTime + 0.5);
-    oscillator.connect(gainNode);
-    gainNode.connect(ctx.destination);
-    oscillator.start();
-    
-    let noteIndex = 0;
-    const playNextNote = () => {
-        if (!endGameMusicNodes) return;
-        const t = ctx.currentTime;
-        endGameMusicNodes.oscillator.frequency.setValueAtTime(notes[noteIndex % notes.length], t);
-        noteIndex++;
-        const timeoutId = window.setTimeout(playNextNote, 800);
-        endGameMusicNodes.timeoutId = timeoutId;
-    };
-    playNextNote();
-    endGameMusicNodes = { oscillator, gain: gainNode };
-};
-
-export const playWinMusic = () => {
-    const notes = [523.25, 659.25, 783.99, 1046.50]; // C5, E5, G5, C6
-    playEndGameMusicLoop(notes, 0.15);
-};
-
-export const playLossMusic = () => {
-    const notes = [174.61, 155.56, 130.81, 110.00]; // F3, D#3, C3, A2
-    playEndGameMusicLoop(notes, 0.15);
-};
-
 export const stopEndGameMusic = () => {
-    if (!endGameMusicNodes || !getAudioContext()) return;
-    const ctx = getAudioContext()!;
-    const { oscillator, gain, timeoutId } = endGameMusicNodes;
-    if (timeoutId) clearTimeout(timeoutId);
-
-    const fadeOutTime = ctx.currentTime + 0.5;
-    gain.gain.linearRampToValueAtTime(0, fadeOutTime);
-    oscillator.stop(fadeOutTime);
-    endGameMusicNodes = null;
+    // This function will now stop any music, including the new win music.
+    stopMusicInternal();
 };

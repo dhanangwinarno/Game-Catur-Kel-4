@@ -23,6 +23,10 @@ interface GameBoardProps {
   isPaused: boolean;
   onPause: () => void;
   onSaveAndQuit: () => void;
+  sfxVolume: number;
+  musicVolume: number;
+  onSfxVolumeChange: (level: number) => void;
+  onMusicVolumeChange: (level: number) => void;
 }
 
 interface AnimationDetails {
@@ -48,7 +52,11 @@ const usePrevious = <T,>(value: T): T | undefined => {
 };
 
 
-const GameBoard: React.FC<GameBoardProps> = ({ gameState, onUpdateGameState, onRestart, onUndo, onRedo, canUndo, canRedo, isMusicPlaying, onToggleMusic, isPaused, onPause, onSaveAndQuit }) => {
+const GameBoard: React.FC<GameBoardProps> = ({ 
+  gameState, onUpdateGameState, onRestart, onUndo, onRedo, canUndo, canRedo, 
+  isMusicPlaying, onToggleMusic, isPaused, onPause, onSaveAndQuit,
+  sfxVolume, musicVolume, onSfxVolumeChange, onMusicVolumeChange 
+}) => {
   const currentPlayer = gameState.players[gameState.currentPlayerIndex];
   const [animationDetails, setAnimationDetails] = useState<AnimationDetails | null>(null);
   const [localMessage, setLocalMessage] = useState<string | null>(null);

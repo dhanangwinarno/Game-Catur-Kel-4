@@ -1,5 +1,5 @@
 import { BOARD_SIZE, MAX_TURNS, PLAYER_COLOR_ORDER } from '../constants';
-import { GameState, Player, Card, BoardState, Difficulty, HistoryEntry, PlacedCard } from '../types';
+import { GameState, Player, Card, BoardState, Difficulty, HistoryEntry, PlacedCard, GameStats } from '../types';
 
 // Helper to shuffle arrays
 const shuffle = <T>(array: T[]): T[] => {
@@ -404,6 +404,17 @@ export const handlePassTurn = (gameState: GameState): GameState => {
 
 type AiMove = { x: number; y: number; handIndex: number; value: number };
 
+const getGameStats = (): GameStats => {
+    try {
+        const statsRaw = localStorage.getItem('tacticalCardConquest_gameStats');
+        return statsRaw 
+            ? JSON.parse(statsRaw) 
+            : { gamesPlayed: 0, wins: { Easy: 0, Medium: 0, Hard: 0 }, losses: { Easy: 0, Medium: 0, Hard: 0 } };
+    } catch {
+        return { gamesPlayed: 0, wins: { Easy: 0, Medium: 0, Hard: 0 }, losses: { Easy: 0, Medium: 0, Hard: 0 } };
+    }
+};
+
 // A lightweight simulation for AI, only checks for win condition.
 // It mutates the board temporarily for performance and then reverts the change.
 const simulatePlacement = (board: BoardState, x: number, y: number, player: Player, card: Card): boolean => {
@@ -465,48 +476,53 @@ const getEasyMove = (gameState: GameState): AiMove | null => {
     return scoredMoves[0].move;
 };
 
+// A more sophisticated evaluation function, used by Medium and Hard AI.
+// This version correctly ignores threats that are already blocked by an opponent.
 const evaluateWindowForAI = (window: (PlacedCard | null)[], aiPlayerId: string): number => {
     const aiCards = window.filter(c => c?.ownerId === aiPlayerId) as PlacedCard[];
     const opponentCards = window.filter(c => c && c.ownerId !== aiPlayerId) as PlacedCard[];
     const aiCount = aiCards.length;
     const opponentCount = opponentCards.length;
-
-    if (aiCount > 0 && opponentCount > 0) return 0;
-
     const emptyCount = 4 - aiCount - opponentCount;
+    
     const avgAiValue = aiCount > 0 ? aiCards.reduce((sum, c) => sum + c.value, 0) / aiCount : 0;
     const avgOpponentValue = opponentCount > 0 ? opponentCards.reduce((sum, c) => sum + c.value, 0) / opponentCount : 0;
 
     const WIN_SCORE = 10000;
-    const IMMINENT_WIN_BLOCK_SCORE = 9000;
-    const THREE_IN_A_ROW_SCORE = 500;
-    const TWO_IN_A_ROW_SCORE = 50;
+    const IMMINENT_WIN_BLOCK_SCORE = 9900; // Increased for more aggressive defense
+    const THREE_IN_A_ROW_SCORE = 6000; // Increased for more aggressive offense
+    const TWO_IN_A_ROW_SCORE = 350; // Increased for setting up threats
 
-    let windowScore = 0;
+    let score = 0;
 
-    if (aiCount > 0) { // AI Offensive threats
-        if (aiCount === 4) windowScore += WIN_SCORE;
-        else if (aiCount === 3 && emptyCount === 1) windowScore += THREE_IN_A_ROW_SCORE + (avgAiValue * 10);
+    // Evaluate offensive potential (only if the window is not blocked by an opponent)
+    if (opponentCount === 0 && aiCount > 0) {
+        if (aiCount === 4) score += WIN_SCORE;
+        else if (aiCount === 3 && emptyCount === 1) score += THREE_IN_A_ROW_SCORE + (avgAiValue * 10);
         else if (aiCount === 2 && emptyCount === 2) {
-            const bonus = (window[0] === null && window[3] === null) ? 2.5 : 1;
-            windowScore += (TWO_IN_A_ROW_SCORE * bonus) + (avgAiValue * 5);
-        }
-    } else if (opponentCount > 0) { // Opponent Defensive threats
-        if (opponentCount === 4) windowScore -= WIN_SCORE;
-        else if (opponentCount === 3 && emptyCount === 1) windowScore -= IMMINENT_WIN_BLOCK_SCORE + (avgOpponentValue * 10);
-        else if (opponentCount === 2 && emptyCount === 2) {
-            const penalty = (window[0] === null && window[3] === null) ? 2.5 : 1;
-            windowScore -= (TWO_IN_A_ROW_SCORE * penalty) + (avgOpponentValue * 5);
+            const bonus = (window[0] === null && window[3] === null) ? 2.5 : 1; // open-ended two bonus
+            score += (TWO_IN_A_ROW_SCORE * bonus) + (avgAiValue * 5);
         }
     }
-    return windowScore;
+
+    // Evaluate defensive threats (only if the window is not blocked by the AI)
+    if (aiCount === 0 && opponentCount > 0) {
+        if (opponentCount === 4) score -= WIN_SCORE; // This should be caught by win check, but as a fallback
+        else if (opponentCount === 3 && emptyCount === 1) score -= IMMINENT_WIN_BLOCK_SCORE + (avgOpponentValue * 10);
+        else if (opponentCount === 2 && emptyCount === 2) {
+            const penalty = (window[0] === null && window[3] === null) ? 2.5 : 1; // open-ended two penalty
+            score -= (TWO_IN_A_ROW_SCORE * penalty) + (avgOpponentValue * 5);
+        }
+    }
+    
+    return score;
 };
 
 
 // A more sophisticated evaluation function, used by Medium and Hard AI.
 const evaluateBoardForAI = (board: BoardState, aiPlayerId: string): number => {
     const MATERIAL_WEIGHT = 1.0;
-    const THREAT_WEIGHT = 7.5; // Increased for more aggressive play
+    const THREAT_WEIGHT = 15.0; // Increased for more aggressive play
     const POSITIONAL_WEIGHT = 1.0;
     
     const positionScores = [
@@ -565,61 +581,98 @@ const evaluateBoardForAI = (board: BoardState, aiPlayerId: string): number => {
     return (materialScore * MATERIAL_WEIGHT) + (positionalScore * POSITIONAL_WEIGHT) + (threatScore * THREAT_WEIGHT);
 };
 
-// 'Medium' difficulty: Upgraded to use the advanced evaluation function for better move selection.
-const getMediumMove = (gameState: GameState): Promise<AiMove | null> => {
-    return new Promise((resolve) => {
-        setTimeout(() => {
-            const { board, players, currentPlayerIndex, hands } = gameState;
-            const currentPlayer = players[currentPlayerIndex];
-            const playerHand = hands[currentPlayer.id];
-            
-            const simulationBoard = board.map(row => row.map(cell => (cell ? { ...cell } : null)));
-            const allMyMoves = getAllPossibleMoves(gameState, currentPlayer, playerHand);
+// Checks for any immediate win or block opportunity, used by Medium and Hard AI.
+const checkForImmediateWinOrBlock = (gameState: GameState): AiMove | null => {
+    const { board, players, currentPlayerIndex, hands } = gameState;
+    const currentPlayer = players[currentPlayerIndex];
+    const playerHand = hands[currentPlayer.id];
+    const allMyMoves = getAllPossibleMoves(gameState, currentPlayer, playerHand);
 
-            if (allMyMoves.length === 0) {
-                resolve(null);
-                return;
+    // 1. Check for a winning move for self
+    const winningMove = allMyMoves.find(move =>
+        simulatePlacement(board, move.x, move.y, currentPlayer, playerHand[move.handIndex])
+    );
+    if (winningMove) return winningMove;
+
+    // 2. Check to block any opponent's winning move
+    for (const opponent of players) {
+        if (opponent.id === currentPlayer.id) continue;
+        const opponentHand = hands[opponent.id] || [];
+        const opponentPossibleMoves = getAllPossibleMoves(gameState, opponent, opponentHand);
+
+        for (const opponentMove of opponentPossibleMoves) {
+            if (simulatePlacement(board, opponentMove.x, opponentMove.y, opponent, opponentHand[opponentMove.handIndex])) {
+                const blockingMove = allMyMoves.find(myMove => myMove.x === opponentMove.x && myMove.y === opponentMove.y);
+                if (blockingMove) return blockingMove;
             }
+        }
+    }
 
-            // 1. Check for a winning move for self
-            const winningMove = allMyMoves.find(move => 
-                simulatePlacement(simulationBoard, move.x, move.y, currentPlayer, playerHand[move.handIndex])
-            );
-            if (winningMove) {
-                resolve(winningMove);
-                return;
+    return null;
+}
+
+// 'Medium' difficulty: Uses a 2-ply (one move ahead) minimax-style search to anticipate opponent's response.
+const getMediumMove = (gameState: GameState): AiMove | null => {
+    const { board, players, currentPlayerIndex, hands, decks, turnNumber } = gameState;
+    const currentPlayer = players[currentPlayerIndex];
+    const playerHand = hands[currentPlayer.id];
+
+    // First, check for any immediate game-ending moves to play or block.
+    const immediateMove = checkForImmediateWinOrBlock(gameState);
+    if (immediateMove) return immediateMove;
+
+    const allMyMoves = getAllPossibleMoves(gameState, currentPlayer, playerHand);
+    if (allMyMoves.length === 0) return null;
+
+    let bestMove: AiMove | null = null;
+    let bestScore = -Infinity;
+
+    // For each possible move the AI can make...
+    for (const myMove of allMyMoves) {
+        // Create a temporary state after the AI's move
+        const { boardCopy, handsCopy, decksCopy } = deepCopyAiState(board, hands, decks);
+        const myCardPlayed = handsCopy[currentPlayer.id][myMove.handIndex];
+        const myCardDrawn = decksCopy[currentPlayer.id].length > 0 ? decksCopy[currentPlayer.id][0] : null;
+
+        boardCopy[myMove.y][myMove.x] = { ...myCardPlayed, color: currentPlayer.color, ownerId: currentPlayer.id };
+        handsCopy[currentPlayer.id].splice(myMove.handIndex, 1);
+        if (myCardDrawn) {
+            decksCopy[currentPlayer.id].shift();
+            handsCopy[currentPlayer.id].push(myCardDrawn);
+        }
+
+        // Now, simulate the opponent's turn to find their best response
+        const nextPlayerIndex = (currentPlayerIndex + 1) % players.length;
+        const opponent = players[nextPlayerIndex];
+        const opponentHand = handsCopy[opponent.id];
+        const opponentPossibleMoves = getAllPossibleMoves({ board: boardCopy, turnNumber: turnNumber + 1 } as GameState, opponent, opponentHand);
+
+        let worstCaseScoreForThisMove = Infinity; // The best score the opponent can achieve (worst for AI)
+
+        if (opponentPossibleMoves.length === 0) {
+            // If opponent can't move, the outcome is just the board state after our move.
+            worstCaseScoreForThisMove = evaluateBoardForAI(boardCopy, currentPlayer.id);
+        } else {
+            // Find the opponent's best response (the one that minimizes our score)
+            for (const opponentMove of opponentPossibleMoves) {
+                const opponentBoard = boardCopy.map(r => r.map(c => c ? { ...c } : null));
+                const opponentCard = opponentHand[opponentMove.handIndex];
+                opponentBoard[opponentMove.y][opponentMove.x] = { ...opponentCard, color: opponent.color, ownerId: opponent.id };
+                
+                const scoreAfterOpponentMove = evaluateBoardForAI(opponentBoard, currentPlayer.id);
+                worstCaseScoreForThisMove = Math.min(worstCaseScoreForThisMove, scoreAfterOpponentMove);
             }
+        }
+        
+        // The AI wants to choose the move that leads to the best possible outcome,
+        // even after the opponent makes their best counter-move.
+        if (worstCaseScoreForThisMove > bestScore) {
+            bestScore = worstCaseScoreForThisMove;
+            bestMove = myMove;
+        }
+    }
 
-            // 2. Check to block any opponent's winning move
-            for (const opponent of players) {
-                if (opponent.id === currentPlayer.id) continue;
-                const opponentHand = hands[opponent.id] || [];
-                const opponentPossibleMoves = getAllPossibleMoves(gameState, opponent, opponentHand);
-
-                for (const opponentMove of opponentPossibleMoves) {
-                    if (simulatePlacement(simulationBoard, opponentMove.x, opponentMove.y, opponent, opponentHand[opponentMove.handIndex])) {
-                         const blockingMove = allMyMoves.find(myMove => myMove.x === opponentMove.x && myMove.y === opponentMove.y);
-                         if(blockingMove) {
-                            resolve(blockingMove);
-                            return;
-                         }
-                    }
-                }
-            }
-            
-            // 3. If no immediate win/block, use the advanced evaluation function to find the best immediate move.
-            const scoredMoves = allMyMoves.map(move => {
-                const tempBoard = board.map(r => r.map(c => c ? {...c} : null));
-                const cardToPlace = playerHand[move.handIndex];
-                tempBoard[move.y][move.x] = { ...cardToPlace, color: currentPlayer.color, ownerId: currentPlayer.id };
-                const score = evaluateBoardForAI(tempBoard, currentPlayer.id);
-                return { move, score };
-            });
-
-            scoredMoves.sort((a, b) => b.score - a.score);
-            resolve(scoredMoves.length > 0 ? scoredMoves[0].move : null);
-        }, 50);
-    });
+    return bestMove || getEasyMove(gameState); // Fallback to a simple move if something goes wrong
 };
 
 
@@ -664,6 +717,18 @@ const minimax = (
     const playerHand = hands[currentPlayer.id];
     const allPossibleMoves = getAllPossibleMoves({ board, turnNumber } as GameState, currentPlayer, playerHand);
     
+    // Optimization: Sort moves at each node using a fast heuristic to improve alpha-beta pruning.
+    const getMoveHeuristicScore = (move: AiMove): number => {
+        let score = 0;
+        const targetCell = board[move.y][move.x];
+        if (targetCell) score += 100 + targetCell.value - move.value; // Prioritize captures
+        const distanceFromCenter = Math.max(Math.abs(4 - move.x), Math.abs(4 - move.y));
+        score += (4 - distanceFromCenter) * 10; // Prioritize central positions
+        score += move.value; // Then card value
+        return score;
+    };
+    allPossibleMoves.sort((a, b) => getMoveHeuristicScore(b) - getMoveHeuristicScore(a));
+
     if (allPossibleMoves.length === 0) {
         return minimax(board, players, hands, decks, (currentPlayerIndex + 1) % players.length, turnNumber + 1, depth - 1, alpha, beta, aiPlayerId);
     }
@@ -707,54 +772,33 @@ const minimax = (
 
 
 // 'Hard' difficulty: Uses iterative deepening minimax search for highly strategic play.
-const getHardMove = async (gameState: GameState): Promise<AiMove | null> => {
+const getHardMove = async (gameState: GameState, timeLimitMs: number = 1000): Promise<AiMove | null> => {
     const { players, currentPlayerIndex, board, hands, decks, turnNumber } = gameState;
     const currentPlayer = players[currentPlayerIndex];
+
+    const immediateMove = checkForImmediateWinOrBlock(gameState);
+    if (immediateMove) return immediateMove;
 
     const allPossibleMoves = getAllPossibleMoves(gameState, currentPlayer, hands[currentPlayer.id]);
     if (allPossibleMoves.length === 0) return null;
 
-    // 1. Prioritize immediate winning move for the AI.
-    const winningMove = allPossibleMoves.find(move =>
-        simulatePlacement(board, move.x, move.y, currentPlayer, hands[currentPlayer.id][move.handIndex])
-    );
-    if (winningMove) {
-        return winningMove;
-    }
-
-    // 2. Prioritize blocking an opponent's immediate winning move.
-    for (const opponent of players) {
-        if (opponent.id === currentPlayer.id) continue;
-        const opponentHand = hands[opponent.id] || [];
-        const opponentMoves = getAllPossibleMoves(gameState, opponent, opponentHand);
-
-        for (const oppMove of opponentMoves) {
-            if (simulatePlacement(board, oppMove.x, oppMove.y, opponent, opponentHand[oppMove.handIndex])) {
-                const blockingMove = allPossibleMoves.find(aiMove =>
-                    aiMove.x === oppMove.x && aiMove.y === oppMove.y
-                );
-                if (blockingMove) return blockingMove;
-            }
-        }
-    }
-
     // 3. If no critical moves, perform an iterative deepening search.
     const startTime = performance.now();
-    const TIME_LIMIT_MS = 1800; // AI has this much time to think.
-    const MAX_DEPTH = 8; // A practical upper limit for the search.
+    const TIME_LIMIT_MS = timeLimitMs; // Use passed-in time limit
+    const MAX_DEPTH = 6; // A practical upper limit for the search.
 
-    // Heuristic move ordering to improve alpha-beta pruning efficiency.
-    const getMoveHeuristicScore = (move: AiMove): number => {
-        let score = 0;
-        const targetCell = board[move.y][move.x];
-        if (targetCell) score += 100 + targetCell.value - move.value;
-        const distanceFromCenter = Math.max(Math.abs(4 - move.x), Math.abs(4 - move.y));
-        score += (4 - distanceFromCenter) * 10;
-        score += move.value;
-        return score;
-    };
+    // Optimization: Use a 1-ply search with the full evaluation function for move ordering.
+    // This provides a much stronger initial ordering, leading to more effective pruning.
+    const scoredMoves = allPossibleMoves.map(move => {
+        const tempBoard = board.map(r => r.map(c => c ? {...c} : null));
+        const cardToPlace = hands[currentPlayer.id][move.handIndex];
+        tempBoard[move.y][move.x] = { ...cardToPlace, color: currentPlayer.color, ownerId: currentPlayer.id };
+        const score = evaluateBoardForAI(tempBoard, currentPlayer.id);
+        return { move, score };
+    });
+    scoredMoves.sort((a, b) => b.score - a.score);
+    let moveOrder = scoredMoves.map(m => m.move);
 
-    let moveOrder = allPossibleMoves.sort((a, b) => getMoveHeuristicScore(b) - getMoveHeuristicScore(a));
     let bestMoveOverall: AiMove | null = moveOrder[0] || null;
 
     try {
@@ -824,17 +868,58 @@ const getHardMove = async (gameState: GameState): Promise<AiMove | null> => {
     return bestMoveOverall || getEasyMove(gameState);
 };
 
-
+// Main entry point for getting any computer move, now with adaptive logic.
 export const getComputerMove = async (gameState: GameState): Promise<AiMove | null> => {
     const { difficulty } = gameState;
-  
+    const stats = getGameStats();
+
     switch (difficulty) {
-        case 'Easy':
+        case 'Easy': {
+            const easyWins = stats.wins.Easy;
+            const easyLosses = stats.losses.Easy;
+            const easyGames = easyWins + easyLosses;
+            // If player has a >75% win rate over at least 5 games, 'Easy' AI gets smarter.
+            if (easyGames >= 5 && (easyWins / easyGames) > 0.75) {
+                // "Smarter" Easy AI will check for its own winning moves and to block opponent's wins.
+                const smartMove = checkForImmediateWinOrBlock(gameState);
+                if (smartMove) return smartMove;
+            }
+            // Otherwise, it plays the standard simple greedy move.
             return getEasyMove(gameState);
-        case 'Medium':
-            return await getMediumMove(gameState);
-        case 'Hard':
-            return await getHardMove(gameState);
+        }
+        case 'Medium': {
+            const mediumWins = stats.wins.Medium;
+            const mediumLosses = stats.losses.Medium;
+            const mediumGames = mediumWins + mediumLosses;
+            // If player has a <25% win rate over at least 5 games, 'Medium' AI makes mistakes.
+            if (mediumGames >= 5 && (mediumWins / mediumGames) < 0.25) {
+                // 30% chance to make a simple, non-strategic 'Easy' move.
+                if (Math.random() < 0.3) {
+                    return getEasyMove(gameState);
+                }
+            }
+            // Otherwise, it uses its standard 2-ply lookahead.
+            return getMediumMove(gameState);
+        }
+        case 'Hard': {
+            let timeLimit = 1000; // Default thinking time.
+            const hardWins = stats.wins.Hard;
+            const hardLosses = stats.losses.Hard;
+            const hardGames = hardWins + hardLosses;
+
+            if (hardGames >= 5) {
+                const winRate = hardWins / hardGames;
+                // If player is struggling (<15% win rate), reduce AI thinking time.
+                if (winRate < 0.15) {
+                    timeLimit = 500; // Faster, shallower search.
+                } 
+                // If player is dominating (>50% win rate), increase AI thinking time.
+                else if (winRate > 0.5) {
+                    timeLimit = 2000; // Slower, deeper search.
+                }
+            }
+            return await getHardMove(gameState, timeLimit);
+        }
         default:
             return getEasyMove(gameState);
     }

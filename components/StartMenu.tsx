@@ -1,5 +1,6 @@
+
 import React, { useState } from 'react';
-import { playSound } from '../services/audioService';
+import { playSound, playWinMusic, stopEndGameMusic } from '../services/audioService';
 import { Difficulty } from '../types';
 import HallOfFame from './HallOfFame';
 import { PLAYER_COLOR_ORDER, PLAYER_COLORS } from '../constants';
@@ -22,7 +23,18 @@ const StartMenu: React.FC<StartMenuProps> = ({ onStartGame, savedGameExists, onR
   const [difficulty, setDifficulty] = useState<Difficulty>('Medium');
 
   const handleNavigate = (targetView: typeof view) => {
-    playSound('click');
+    // Stop music if leaving Hall of Fame
+    if (view === 'hall_of_fame' && targetView !== 'hall_of_fame') {
+        stopEndGameMusic();
+    }
+
+    if (targetView === 'hall_of_fame') {
+        // The component plays its own sound, no need to play one here.
+        // The "humming" sound (playWinMusic) is removed.
+    } else {
+        playSound('click');
+    }
+    
     setView(targetView);
   };
   
