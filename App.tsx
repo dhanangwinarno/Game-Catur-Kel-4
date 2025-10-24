@@ -1,16 +1,16 @@
-
 import React, { useState, useEffect } from 'react';
 import StartMenu from './components/StartMenu';
 import GameBoard from './components/GameBoard';
 import GameOverModal from './components/GameOverModal';
-import { GameState, Difficulty, GameRecord } from './types';
+import { GameState, Difficulty, GameRecord, GameStats } from './types';
 import { initializeGameState } from './services/gameLogic';
-import { playSound, startMusic, stopMusic, stopEndGameMusic } from './services/audioService';
+import { playSound, startMusic, stopMusic, stopEndGameMusic, setSfxVolume, setMusicVolume } from './services/audioService';
 import Confetti from './components/Confetti';
 import GameStartAnimation from './components/GameStartAnimation';
 import PauseModal from './components/PauseModal';
 
 const SAVED_GAME_KEY = 'savedTacticalCardConquestGame';
+const GAME_STATS_KEY = 'tacticalCardConquest_gameStats';
 
 const App: React.FC = () => {
   const [history, setHistory] = useState<GameState[]>([]);
@@ -20,6 +20,19 @@ const App: React.FC = () => {
   const [isPaused, setIsPaused] = useState(false);
   const [savedGameExists, setSavedGameExists] = useState(false);
   
+  const [sfxVolume, setSfxVolumeState] = useState(() => {
+    const saved = localStorage.getItem('tacticalCardConquest_sfxVolume');
+    const initialVolume = saved ? parseFloat(saved) : 1.0;
+    setSfxVolume(initialVolume);
+    return initialVolume;
+  });
+  const [musicVolume, setMusicVolumeState] = useState(() => {
+    const saved = localStorage.getItem('tacticalCardConquest_musicVolume');
+    const initialVolume = saved ? parseFloat(saved) : 0.5;
+    setMusicVolume(initialVolume);
+    return initialVolume;
+  });
+
   const currentGameState = history[historyIndex];
 
   useEffect(() => {
@@ -138,6 +151,15 @@ const App: React.FC = () => {
     }
   };
 
+  const handleSfxVolumeChange = (level: number) => {
+    setSfxVolumeState(level);
+    setSfxVolume(level);
+  };
+
+  const handleMusicVolumeChange = (level: number) => {
+    setMusicVolumeState(level);
+    setMusicVolume(level);
+  };
 
   useEffect(() => {
     if (isMusicPlaying && !currentGameState?.isGameOver && !isPaused) {
@@ -152,6 +174,30 @@ const App: React.FC = () => {
       stopMusic();
       localStorage.removeItem(SAVED_GAME_KEY);
       setSavedGameExists(false);
+
+      // Update Game Stats for Adaptive AI
+      try {
+        const statsRaw = localStorage.getItem(GAME_STATS_KEY);
+        const stats: GameStats = statsRaw 
+            ? JSON.parse(statsRaw) 
+            : { gamesPlayed: 0, wins: { Easy: 0, Medium: 0, Hard: 0 }, losses: { Easy: 0, Medium: 0, Hard: 0 } };
+        
+        stats.gamesPlayed += 1;
+        const humanPlayer = currentGameState.players.find(p => !p.isComputer);
+        
+        if (humanPlayer && currentGameState.difficulty) {
+            if (currentGameState.winner?.id === humanPlayer.id) {
+                stats.wins[currentGameState.difficulty] += 1;
+            } else if (currentGameState.winner?.isComputer) {
+                stats.losses[currentGameState.difficulty] += 1;
+            }
+        }
+        localStorage.setItem(GAME_STATS_KEY, JSON.stringify(stats));
+      } catch(e) {
+        console.error("Failed to update game stats:", e);
+      }
+
+
       if (currentGameState.winner) {
         playSound('win');
         
@@ -172,7 +218,7 @@ const App: React.FC = () => {
             const updatedRecords = [...existingRecords, newRecord];
             updatedRecords.sort((a, b) => b.score - a.score); // Sort by score descending
             
-            localStorage.setItem(storageKey, JSON.stringify(updatedRecords.slice(0, 10))); // Keep top 10 scores
+            localStorage.setItem(storageKey, JSON.stringify(updatedRecords.slice(0, 20))); // Keep top 20 scores
         } catch (e) {
             console.error("Failed to save high score:", e);
         }
@@ -180,7 +226,7 @@ const App: React.FC = () => {
         playSound('lose');
       }
     }
-  }, [currentGameState?.isGameOver, currentGameState?.winner]);
+  }, [currentGameState?.isGameOver, currentGameState?.winner, currentGameState?.players, currentGameState?.difficulty]);
 
   return (
     <main className="w-screen h-screen bg-gradient-to-br from-slate-900 via-black to-slate-900 flex items-center justify-center font-sans overflow-hidden">
@@ -207,8 +253,18 @@ const App: React.FC = () => {
             isPaused={isPaused}
             onPause={handlePause}
             onSaveAndQuit={handleSaveAndQuit}
+            sfxVolume={sfxVolume}
+            musicVolume={musicVolume}
+            onSfxVolumeChange={handleSfxVolumeChange}
+            onMusicVolumeChange={handleMusicVolumeChange}
           />
-          {isPaused && <PauseModal onResume={handleResume} />}
+          {isPaused && <PauseModal 
+            onResume={handleResume}
+            sfxVolume={sfxVolume}
+            musicVolume={musicVolume}
+            onSfxVolumeChange={handleSfxVolumeChange}
+            onMusicVolumeChange={handleMusicVolumeChange}
+           />}
           {currentGameState.isGameOver && (
             <GameOverModal
               winner={currentGameState.winner}

@@ -69,6 +69,12 @@ export interface GameRecord {
   date: string;
 }
 
+export interface GameStats {
+  gamesPlayed: number;
+  wins: Record<Difficulty, number>;
+  losses: Record<Difficulty, number>;
+}
+
 
 // FIX: Add LobbyState and OnlineMessage types to resolve import errors.
 export interface LobbyState {
